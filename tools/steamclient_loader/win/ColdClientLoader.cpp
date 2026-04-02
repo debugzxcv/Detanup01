@@ -154,6 +154,7 @@ static std::vector<std::string> collect_dlls_to_inject(const bool is_exe_32, std
     }
 }
 
+static bool new_steam_hkcu = false;
 static bool orig_steam_hkcu = false;
 static WCHAR OrgSteamCDir_hkcu[8192] = { 0 };
 static DWORD Size1_hkcu = sizeof(OrgSteamCDir_hkcu);
@@ -180,6 +181,7 @@ static bool patch_registry_hkcu()
         logger.write("Found previous registry entry (HKCU) for Steam");
     } else if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam\\ActiveProcess", 0, 0, REG_OPTION_NON_VOLATILE,
             KEY_ALL_ACCESS, NULL, &Registrykey, NULL) == ERROR_SUCCESS) {
+        new_steam_hkcu = true;
         logger.write("Created new registry entry (HKCU) for Steam");
     } else {
         logger.write("Unable to patch Registry (HKCU), error = " + std::to_string(GetLastError()));
@@ -199,6 +201,12 @@ static bool patch_registry_hkcu()
 
 static void cleanup_registry_hkcu()
 {
+    if (new_steam_hkcu) {
+        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam\\ActiveProcess");
+        RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam\\ActiveProcess");
+        return;
+    }
+
     if (!orig_steam_hkcu) return;
 
     logger.write("restoring registry entries (HKCU)");
@@ -219,6 +227,7 @@ static void cleanup_registry_hkcu()
 }
 
 
+static bool new_steam_hkcu_2 = false;
 static bool orig_steam_hkcu_2 = false;
 static WCHAR OrgSteamModDir_hkcu_2[8192] = { 0 };
 static DWORD Size1_hkcu_2 = sizeof(OrgSteamModDir_hkcu_2);
@@ -239,6 +248,7 @@ static bool patch_registry_hkcu_2()
         logger.write("Found previous registry entry (HKCU #2) for Steam");
     } else if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", 0, 0, REG_OPTION_NON_VOLATILE,
             KEY_ALL_ACCESS, NULL, &Registrykey, NULL) == ERROR_SUCCESS) {
+        new_steam_hkcu_2 = true;
         logger.write("Created new registry entry (HKCU #2) for Steam");
     } else {
         logger.write("Unable to patch Registry (HKCU #2), error = " + std::to_string(GetLastError()));
@@ -261,6 +271,12 @@ static bool patch_registry_hkcu_2()
 
 static void cleanup_registry_hkcu_2()
 {
+    if (new_steam_hkcu_2) {
+        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam");
+        RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam");
+        return;
+    }
+
     if (!orig_steam_hkcu_2) return;
 
     logger.write("restoring registry entries (HKCU #2)");
@@ -279,6 +295,7 @@ static void cleanup_registry_hkcu_2()
 }
 
 
+static bool new_steam_hklm = false;
 static bool orig_steam_hklm = false;
 static WCHAR OrgInstallPath_hklm[8192] = { 0 };
 static DWORD Size1_hklm = sizeof(OrgInstallPath_hklm);
@@ -296,6 +313,7 @@ static bool patch_registry_hklm()
         logger.write("Found previous registry entry (HKLM) for Steam");
     } else if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, hklm_path.c_str(), 0, 0, REG_OPTION_NON_VOLATILE,
             KEY_ALL_ACCESS, NULL, &Registrykey, NULL) == ERROR_SUCCESS) {
+        new_steam_hklm = true;
         logger.write("Created new registry entry (HKLM) for Steam");
     } else {
         logger.write("Unable to patch Registry (HKLM), error = " + std::to_string(GetLastError()));
@@ -313,6 +331,12 @@ static bool patch_registry_hklm()
 
 static void cleanup_registry_hklm()
 {
+    if (new_steam_hklm) {
+        RegDeleteTreeW(HKEY_LOCAL_MACHINE, hklm_path.c_str());
+        RegDeleteKeyW(HKEY_LOCAL_MACHINE, hklm_path.c_str());
+        return;
+    }
+
     if (!orig_steam_hklm) return;
 
     logger.write("restoring registry entries (HKLM)");
@@ -327,6 +351,7 @@ static void cleanup_registry_hklm()
 }
 
 
+static bool new_steam_hkcs_2 = false;
 static bool orig_steam_hkcs_1 = false;
 static bool orig_steam_hkcs_2 = false;
 static WCHAR OrgCommand_hkcs[8192] = { 0 };
@@ -359,6 +384,7 @@ static bool patch_registry_hkcs()
         logger.write("Found previous registry entry (HKCS) #2 for Steam");
     } else if (RegCreateKeyExW(HKEY_CLASSES_ROOT, L"steam\\Shell\\Open\\Command", 0, 0, REG_OPTION_NON_VOLATILE,
             KEY_ALL_ACCESS, NULL, &Registrykey_2, NULL) == ERROR_SUCCESS) {
+        new_steam_hkcs_2 = true;
         logger.write("Created new registry entry (HKCS) #2 for Steam");
     } else {
         logger.write("Unable to patch Registry (HKCS) #2, error = " + std::to_string(GetLastError()));
@@ -378,6 +404,10 @@ static bool patch_registry_hkcs()
 
 static void cleanup_registry_hkcs()
 {
+    if (new_steam_hkcs_2) {
+        RegDeleteTreeW(HKEY_CLASSES_ROOT, L"steam\\Shell\\Open\\Command");
+        RegDeleteKeyW(HKEY_CLASSES_ROOT, L"steam\\Shell\\Open\\Command");
+    } else
     if (orig_steam_hkcs_2) {
         logger.write("restoring registry entries (HKCS) #2");
         HKEY Registrykey = { 0 };
@@ -401,6 +431,7 @@ static void cleanup_registry_hkcs()
     } else {
         logger.write("removing registry entries (HKCS) #2 (added by loader)");
         HKEY Registrykey = { 0 };
+        RegDeleteTreeW(HKEY_CLASSES_ROOT, L"steam");
         RegDeleteKeyW(HKEY_CLASSES_ROOT, L"steam");
     }
 }
@@ -722,17 +753,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
         }
     }
 
-    if (!patch_registry_hkcu()) {
-        cleanup_registry_hkcu();
-        cleanup_registry_hkcu_2();
-        cleanup_registry_hklm();
-        cleanup_registry_hkcs();
-    
-        logger.write("Unable to patch Registry (HKCU).");
-        MessageBoxA(NULL, "Unable to patch Registry (HKCU).", "ColdClientLoader", MB_ICONERROR);
-        return 1;
-    }
-
     if (!patch_registry_hkcu_2()) {
         cleanup_registry_hkcu();
         cleanup_registry_hkcu_2();
@@ -741,6 +761,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
     
         logger.write("Unable to patch Registry (HKCU #2).");
         MessageBoxA(NULL, "Unable to patch Registry (HKCU #2).", "ColdClientLoader", MB_ICONERROR);
+        return 1;
+    }
+
+    if (!patch_registry_hkcu()) {
+        cleanup_registry_hkcu();
+        cleanup_registry_hkcu_2();
+        cleanup_registry_hklm();
+        cleanup_registry_hkcs();
+    
+        logger.write("Unable to patch Registry (HKCU).");
+        MessageBoxA(NULL, "Unable to patch Registry (HKCU).", "ColdClientLoader", MB_ICONERROR);
         return 1;
     }
 
