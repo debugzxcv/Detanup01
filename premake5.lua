@@ -1464,6 +1464,7 @@ project "steamclient_experimental_loader"
     links {
         -- common_link_win,
         'user32',
+        'shlwapi',
     }
 -- End steamclient_experimental_loader
 

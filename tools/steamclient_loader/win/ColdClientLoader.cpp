@@ -4,6 +4,7 @@
 #include "common_helpers/common_helpers.hpp"
 #include "pe_helpers/pe_helpers.hpp"
 #include "dbg_log/dbg_log.hpp"
+#include <shlwapi.h>
 
 #define SI_CONVERT_GENERIC
 #define SI_SUPPORT_IOSTREAMS
@@ -27,6 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
+#include <regex>
 
 
 static CSimpleIniA local_ini{true};
@@ -707,6 +709,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
         }
     }
 
+    std::wsmatch steam_run_match{};
     if (PersistentMode != 2) {
         if (AppId.empty()) {
             read_steam_settings_appid();
@@ -727,20 +730,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 
         set_steam_env_vars();
     } else { // steam://run/
-        constexpr const static wchar_t STEAM_LAUNCH_CMD_1[] = L"-- \"steam://run/";
-        constexpr const static wchar_t STEAM_LAUNCH_CMD_2[] = L"-- \"steam://rungameid/";
         AppId.clear(); // we don't care about the app id in the ini
         auto my_cmd = lpCmdLine && lpCmdLine[0]
             ? std::wstring(lpCmdLine)
             : std::wstring();
-        //MessageBoxW(NULL, (my_cmd + L" ||| " + std::to_wstring(my_cmd.size())).c_str(), L"DEBUG ME", MB_OK);
-        logger.write(L"persistent mode 2 detecting steam launch cmd from: '" + my_cmd + L"'");
-        if (my_cmd.find(STEAM_LAUNCH_CMD_1) == 0) {
-            AppId = common_helpers::to_str( my_cmd.substr(sizeof(STEAM_LAUNCH_CMD_1) / sizeof(STEAM_LAUNCH_CMD_1[0]), my_cmd.find_first_of(L" \t")) );
-            logger.write("persistent mode 2 got steam launch cmd #1");
-        } else if (my_cmd.find(STEAM_LAUNCH_CMD_2) == 0) {
-            AppId = common_helpers::to_str( my_cmd.substr(sizeof(STEAM_LAUNCH_CMD_2) / sizeof(STEAM_LAUNCH_CMD_2[0]), my_cmd.find_first_of(L" \t")) );
-            logger.write("persistent mode 2 got steam launch cmd #2");
+        logger.write(common_helpers::to_str(L"persistent mode 2 detecting steam launch cmd from: '" + my_cmd + L"'"));
+
+        if (std::regex_search(my_cmd, steam_run_match, std::wregex{LR"(steam://run(?:gameid)?/(\d+)(?://([^?/]+))?)"})) {
+            AppId = common_helpers::to_str(steam_run_match[1].str());
         } else {
             logger.write("persistent mode 2 didn't detect a valid steam launch cmd");
         }
@@ -815,8 +812,31 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
         logger.write("spawning the requested EXE file");
         const auto exe_file = common_helpers::to_wstr(ExeFile);
         std::wstringstream cmdline{};
+        logger.write("steam_run_match: " + std::to_string(steam_run_match.size()));
+        switch (steam_run_match.size()) {
+            case 2:
+                cmdline << L"\"" << exe_file << L"\" " << common_helpers::to_wstr(ExeCommandLine);
+                break;
+            case 3:
+                if (!steam_run_match[2].str().empty()) {
+                    wchar_t args[2048]{};
+                    wcscpy(args, steam_run_match[2].str().c_str());
+                    auto hr =
+                        UrlUnescapeW(args,
+                                    nullptr, nullptr, URL_UNESCAPE_AS_UTF8|URL_UNESCAPE_INPLACE);
+                    if (SUCCEEDED(hr)) {
+                        cmdline << L"\"" << exe_file << L"\" " << common_helpers::to_wstr(ExeCommandLine) << L" " << args;
+                        break;
+                    }
+                    logger.write("Unable to unescape url, steam_run_match[2] = '" + common_helpers::to_str(steam_run_match[2].str()) + "', error = "+std::to_string(hr));
+                }
+                cmdline << L"\"" << exe_file << L"\" " << common_helpers::to_wstr(ExeCommandLine);
+                break;
+            default:
         cmdline << L"\"" << exe_file << L"\" " << common_helpers::to_wstr(ExeCommandLine) << L" " << lpCmdLine;
+        }
         auto CommandLine = cmdline.str();
+        logger.write(common_helpers::to_str(L"cmdline: '"+CommandLine+L"'"));
         if (!CreateProcessW(exe_file.c_str(), (LPWSTR)CommandLine.c_str(), NULL, NULL, TRUE, CREATE_SUSPENDED, NULL, common_helpers::to_wstr(ExeRunDir).c_str(), &info, &processInfo)) {
             logger.write("Unable to load the requested EXE file, error = " + std::to_string(GetLastError()));
             cleanup_registry_hkcu();
