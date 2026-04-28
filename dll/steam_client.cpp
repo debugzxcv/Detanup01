@@ -311,18 +311,25 @@ void Steam_Client::setAppID(uint32 appid)
     
 }
 
-    // Creates a communication pipe to the Steam client.
+// Creates a communication pipe to the Steam client.
 // NOT THREADSAFE - ensure that no other threads are accessing Steamworks API when calling
 HSteamPipe Steam_Client::CreateSteamPipe()
 {
     PRINT_DEBUG_ENTRY();
-    if (!steam_pipe_counter) ++steam_pipe_counter;
-    HSteamPipe pipe = steam_pipe_counter;
-    ++steam_pipe_counter;
-    PRINT_DEBUG("  returned pipe handle %i", pipe);
 
-    steam_pipes[pipe] = Steam_Pipe::NO_USER;
-    
+    HSteamPipe pipe{};
+    if (!freed_steam_pipes.empty()) {
+        pipe = freed_steam_pipes.top();
+        freed_steam_pipes.pop();
+    } else {
+        if (!steam_pipe_counter) ++steam_pipe_counter;
+        pipe = steam_pipe_counter;
+        ++steam_pipe_counter;
+    }
+
+    PRINT_DEBUG("  returned pipe handle %i", pipe);
+    steam_pipes[pipe] = { Steam_Pipe_Type::NO_USER, false };
+
     return pipe;
 }
 
@@ -334,6 +341,7 @@ bool Steam_Client::BReleaseSteamPipe( HSteamPipe hSteamPipe )
 {
     PRINT_DEBUG("%i", hSteamPipe);
     if (steam_pipes.count(hSteamPipe)) {
+        freed_steam_pipes.push(hSteamPipe);
         return steam_pipes.erase(hSteamPipe) > 0;
     }
 
@@ -364,7 +372,7 @@ HSteamUser Steam_Client::ConnectToGlobalUser( HSteamPipe hSteamPipe )
 
     steam_overlay->SetupOverlay();
     
-    steam_pipes[hSteamPipe] = Steam_Pipe::CLIENT;
+    steam_pipes[hSteamPipe] = {Steam_Pipe_Type::CLIENT, false};
     return CLIENT_HSTEAMUSER;
 }
 
@@ -386,7 +394,7 @@ HSteamUser Steam_Client::CreateLocalUser( HSteamPipe *phSteamPipe, EAccountType 
 
     HSteamPipe pipe = CreateSteamPipe();
     if (phSteamPipe) *phSteamPipe = pipe;
-    steam_pipes[pipe] = Steam_Pipe::SERVER;
+    steam_pipes[pipe] = {Steam_Pipe_Type::SERVER, false};
     return SERVER_HSTEAMUSER;
     //}
 }
@@ -1120,8 +1128,8 @@ HSteamUser Steam_Client::CreateGlobalUser( HSteamPipe *phSteamPipe )
 {
     // TODO not sure if this implementation is correct
     PRINT_DEBUG_TODO();
-    for (const auto &[pipe_handle, pipe_type] : steam_pipes) {
-        if (pipe_type == Steam_Pipe::CLIENT) {
+    for (const auto &[pipe_handle, pipe_struct] : steam_pipes) {
+        if (pipe_struct.type == Steam_Pipe_Type::CLIENT) {
             if (phSteamPipe) *phSteamPipe = pipe_handle;
             return 0;
         }
@@ -1130,7 +1138,7 @@ HSteamUser Steam_Client::CreateGlobalUser( HSteamPipe *phSteamPipe )
     HSteamPipe pipe = CreateSteamPipe();
     if (phSteamPipe) *phSteamPipe = pipe;
 
-    steam_pipes[pipe] = Steam_Pipe::CLIENT;
+    steam_pipes[pipe] = {Steam_Pipe_Type::CLIENT, false};
     return CLIENT_HSTEAMUSER;
 }
 
@@ -1177,14 +1185,14 @@ void Steam_Client::SetEUniverse( EUniverse universe )
 HSteamPipe Steam_Client::get_pipe_for_user(HSteamUser hUser)
 {
     if (hUser == CLIENT_HSTEAMUSER) {
-        for (const auto &[pipe_handle, pipe_type] : steam_pipes) {
-            if (pipe_type == Steam_Pipe::CLIENT) {
+        for (const auto &[pipe_handle, pipe_struct] : steam_pipes) {
+            if (pipe_struct.type == Steam_Pipe_Type::CLIENT) {
                 return pipe_handle;
             }
         }
     } else if (hUser == SERVER_HSTEAMUSER) {
-        for (const auto &[pipe_handle, pipe_type] : steam_pipes) {
-            if (pipe_type == Steam_Pipe::SERVER) {
+        for (const auto &[pipe_handle, pipe_struct] : steam_pipes) {
+            if (pipe_struct.type == Steam_Pipe_Type::SERVER) {
                 return pipe_handle;
             }
         }
